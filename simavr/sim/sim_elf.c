@@ -43,6 +43,7 @@
 #include "sim_vcd_file.h"
 #include "avr_eeprom.h"
 #include "avr_ioport.h"
+#include "avr_twi.h"
 
 #ifndef O_BINARY
 #define O_BINARY 0
@@ -333,7 +334,10 @@ avr_load_firmware(
 		} else if (firmware->trace[ti].kind == AVR_MMCU_TAG_VCD_IO_IRQ) {
 			avr_irq_t * irq = avr_io_getirq(avr, firmware->trace[ti].addr, firmware->trace[ti].mask);
 			if (irq)
-				avr_vcd_add_signal(avr->vcd, irq, 8, firmware->trace[ti].name);
+				avr_vcd_add_signal(
+					avr->vcd, irq,
+					firmware->trace[ti].addr == AVR_IOCTL_TWI_GETIRQ(0) ? 32 : 8,
+					firmware->trace[ti].name);
 		} else if ( (firmware->trace[ti].kind == AVR_MMCU_TAG_VCD_SRAM_8) ||
 		    (firmware->trace[ti].kind == AVR_MMCU_TAG_VCD_SRAM_16) ) {
 			avr_irq_t *irq;

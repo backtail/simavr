@@ -232,7 +232,7 @@ avr_twi_write(
 	if (!data)
 		return;
 
-	int do_read = p->peer_addr & 1;
+	int do_read = p->state & TWI_COND_READ;
 	int do_ack = avr_regbit_get(avr, p->twea) != 0;
 
 	if (p->state & TWI_COND_SLAVE) {
@@ -460,10 +460,8 @@ avr_twi_irq_input(
 			p->peer_addr = msg.u.twi.addr & mask;
 			if (p->peer_addr == ((avr->data[p->r_twar] >> 1) & mask)) {
 				// address match, we're talking
-				p->state = TWI_COND_SLAVE;
-				// INVERSE logic here
-				if (!(msg.u.twi.msg & TWI_COND_WRITE))
-					p->peer_addr |= 1;
+				p->state = TWI_COND_SLAVE |
+					(msg.u.twi.msg & (TWI_COND_WRITE | TWI_COND_READ));
 				_avr_twi_delay_state(p, 9,
 					msg.u.twi.msg & TWI_COND_WRITE ?
 						TWI_SRX_ADR_ACK : TWI_STX_ADR_ACK );
@@ -477,9 +475,7 @@ avr_twi_irq_input(
 		}
 	}
 	if (msg.u.twi.msg & TWI_COND_STOP) {
-		_avr_twi_delay_state(p, 9,
-			msg.u.twi.msg & TWI_COND_WRITE ?
-				TWI_SRX_ADR_ACK : TWI_SRX_STOP_RESTART );
+		_avr_twi_delay_state(p, 9, TWI_SRX_STOP_RESTART);
 	}
 }
 
