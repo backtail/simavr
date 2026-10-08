@@ -360,7 +360,7 @@ avr_load_firmware(
 				avr_vcd_add_signal(
 					avr->vcd,
 					irq,
-					avr->sram_tracepoint[avr->sram_tracepoint_count].width,
+					avr->sram_tracepoint[avr->sram_tracepoint_count - 1].width,
 					firmware->trace[ti].name[0] ?
 					firmware->trace[ti].name : irq->name);
 			}
