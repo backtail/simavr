@@ -227,7 +227,9 @@ avr_uart_baud_write(
 	const int databits[] = { 5,6,7,8,  /* 'reserved', assume 8 */8,8,8, 9 };
 	int db = databits[avr_regbit_get(avr, p->ucsz) | (avr_regbit_get(avr, p->ucsz2) << 2)];
 	int sb = 1 + avr_regbit_get(avr, p->usbs);
-	int word_size = 1 /* start */ + db /* data bits */ + 1 /* parity */ + sb /* stops */;
+	int parity_bits = avr_regbit_get(avr, p->upm) ? 1 : 0;
+	int word_size = 1 /* start */ + db /* data bits */ +
+		parity_bits + sb /* stops */;
 	int cycles_per_bit = (val+1)*8;
 	if (!avr_regbit_get(avr, p->u2x))
 		cycles_per_bit *= 2;
@@ -537,6 +539,7 @@ avr_uart_init(
 		avr_register_io_write(avr, p->r_ucsra, avr_uart_write, p);
 	if (p->ubrrl.reg)
 		avr_register_io_write(avr, p->ubrrl.reg, avr_uart_baud_write, p);
+	if (p->r_ucsrc && p->r_ucsrc != p->ubrrh.reg)
+		avr_register_io_write(avr, p->r_ucsrc, avr_uart_baud_write, p);
 	avr_register_io_write(avr, p->rxen.reg, avr_uart_write, p);
 }
-
