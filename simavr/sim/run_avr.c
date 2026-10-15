@@ -30,6 +30,7 @@
 #include "sim_gdb.h"
 #include "sim_hex.h"
 #include "sim_vcd_file.h"
+#include "avr_eeprom.h"
 
 #include "sim_core_decl.h"
 
@@ -64,6 +65,8 @@ display_usage(
 	 "       [-ti <vector>]      Add traces for IRQ vector <vector>\n"
 	 "       [--input|-i <file>] A VCD file to use as input signals\n"
 	 "       [--output|-o <file>] A VCD file to save the traced signals\n"
+	 "       [--eeprom-input <file>] Load a complete raw EEPROM image\n"
+	 "       [--eeprom-output <file>] Save the complete raw EEPROM on exit\n"
 	 "       [--add-trace|-at    <name=[portpin|irq|trace]@addr/mask>] or \n"
 	 "                           <name=[sram8|sram16]@addr>] or \n"
 	 "                           <name=ioirq@XXXX/N\n"
@@ -90,6 +93,66 @@ list_cores()
 }
 
 static avr_t * avr = NULL;
+
+static int
+load_raw_eeprom(avr_t *avr, const char *path)
+{
+	const size_t size = avr->e2end + 1;
+	uint8_t *data = malloc(size);
+	FILE *file = fopen(path, "rb");
+	if (!data || !file) {
+		fprintf(stderr, "Unable to open EEPROM input %s\n", path);
+		free(data);
+		if (file)
+			fclose(file);
+		return -1;
+	}
+	const size_t count = fread(data, 1, size, file);
+	const int extra = fgetc(file);
+	if (ferror(file) || count != size || extra != EOF) {
+		fprintf(stderr,
+			"EEPROM input %s must contain exactly %zu bytes\n", path, size);
+		fclose(file);
+		free(data);
+		return -1;
+	}
+	fclose(file);
+	avr_eeprom_desc_t desc = {.ee = data, .offset = 0, .size = size};
+	const int result = avr_ioctl(avr, AVR_IOCTL_EEPROM_SET, &desc);
+	free(data);
+	if (result) {
+		fprintf(stderr, "Unable to load EEPROM input %s\n", path);
+		return -1;
+	}
+	return 0;
+}
+
+static int
+save_raw_eeprom(avr_t *avr, const char *path)
+{
+	const size_t size = avr->e2end + 1;
+	uint8_t *data = malloc(size);
+	avr_eeprom_desc_t desc = {.ee = data, .offset = 0, .size = size};
+	if (!data || avr_ioctl(avr, AVR_IOCTL_EEPROM_GET, &desc)) {
+		fprintf(stderr, "Unable to read emulated EEPROM for %s\n", path);
+		free(data);
+		return -1;
+	}
+	FILE *file = fopen(path, "wb");
+	if (!file) {
+		fprintf(stderr, "Unable to write EEPROM output %s\n", path);
+		free(data);
+		return -1;
+	}
+	const size_t count = fwrite(data, 1, size, file);
+	const int close_result = fclose(file);
+	free(data);
+	if (count != size || close_result) {
+		fprintf(stderr, "Unable to write EEPROM output %s\n", path);
+		return -1;
+	}
+	return 0;
+}
 
 static void
 sig_int(
@@ -119,6 +182,8 @@ main(
 	int trace_vectors[8] = {0};
 	int trace_vectors_count = 0;
 	const char *vcd_input = NULL;
+	const char *eeprom_input = NULL;
+	const char *eeprom_output = NULL;
 
 #ifndef NO_COLOR
 	const char *no_color = getenv("NO_COLOR");
@@ -160,6 +225,16 @@ main(
 				exit(1);
 			}
 			snprintf(f.tracename, sizeof(f.tracename), "%s", argv[++pi]);
+		} else if (!strcmp(argv[pi], "--eeprom-input")) {
+			if (pi < argc-1)
+				eeprom_input = argv[++pi];
+			else
+				display_usage(basename(argv[0]));
+		} else if (!strcmp(argv[pi], "--eeprom-output")) {
+			if (pi < argc-1)
+				eeprom_output = argv[++pi];
+			else
+				display_usage(basename(argv[0]));
 		} else if (!strcmp(argv[pi], "-t") ||
 				   !strcmp(argv[pi], "--trace")) {
 #ifdef CONFIG_SIMAVR_TRACE
@@ -308,6 +383,10 @@ main(
 #endif //CONFIG_SIMAVR_TRACE
 
 	avr_load_firmware(avr, &f);
+	if (eeprom_input && load_raw_eeprom(avr, eeprom_input)) {
+		avr_terminate(avr);
+		return 1;
+	}
 	if (f.flashbase) {
 		printf("Attempted to load a bootloader at %04x\n", f.flashbase);
 		avr->pc = f.flashbase;
@@ -338,6 +417,10 @@ main(
 		int state = avr_run(avr);
 		if (state == cpu_Done || state == cpu_Crashed)
 			break;
+	}
+	if (eeprom_output && save_raw_eeprom(avr, eeprom_output)) {
+		avr_terminate(avr);
+		return 1;
 	}
 
 	avr_terminate(avr);
