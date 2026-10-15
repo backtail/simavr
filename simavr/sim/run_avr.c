@@ -66,8 +66,9 @@ display_usage(
 	 "       [--input|-i <file>] A VCD file to use as input signals\n"
 	 "       [--output|-o <file>] A VCD file to save the traced signals\n"
      "       [--eeprom-input <file>] Load a complete raw EEPROM image\n"
-     "       [--eeprom-output <file>] Save the complete raw EEPROM on exit\n"
-     "       [--eeprom-size <bytes>] EEPROM image size (defaults to MCU size)\n"
+	 "       [--eeprom-output <file>] Save the complete raw EEPROM on exit\n"
+	 "       [--eeprom-size <bytes>] EEPROM image size (defaults to MCU size)\n"
+	 "       [--exit-on-reset]    Stop successfully after the first runtime MCU reset\n"
 	 "       [--add-trace|-at    <name=[portpin|irq|trace]@addr/mask>] or \n"
 	 "                           <name=[sram8|sram16]@addr>] or \n"
 	 "                           <name=ioirq@XXXX/N\n"
@@ -184,6 +185,7 @@ main(
 	const char *eeprom_input = NULL;
 	const char *eeprom_output = NULL;
 	size_t eeprom_size = 0;
+	int exit_on_reset = 0;
 
 #ifndef NO_COLOR
 	const char *no_color = getenv("NO_COLOR");
@@ -247,6 +249,8 @@ main(
 			} else {
 				display_usage(basename(argv[0]));
 			}
+		} else if (!strcmp(argv[pi], "--exit-on-reset")) {
+			exit_on_reset = 1;
 		} else if (!strcmp(argv[pi], "-t") ||
 				   !strcmp(argv[pi], "--trace")) {
 #ifdef CONFIG_SIMAVR_TRACE
@@ -434,8 +438,14 @@ main(
 	signal(SIGINT, sig_int);
 	signal(SIGTERM, sig_int);
 
+	avr_cycle_count_t previous_cycle = avr->cycle;
 	for (;;) {
 		int state = avr_run(avr);
+		if (exit_on_reset && avr->cycle < previous_cycle) {
+			printf("MCU reset observed; stopping simulation\n");
+			break;
+		}
+		previous_cycle = avr->cycle;
 		if (state == cpu_Done || state == cpu_Crashed)
 			break;
 	}
