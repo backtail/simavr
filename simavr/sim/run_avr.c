@@ -65,8 +65,9 @@ display_usage(
 	 "       [-ti <vector>]      Add traces for IRQ vector <vector>\n"
 	 "       [--input|-i <file>] A VCD file to use as input signals\n"
 	 "       [--output|-o <file>] A VCD file to save the traced signals\n"
-	 "       [--eeprom-input <file>] Load a complete raw EEPROM image\n"
-	 "       [--eeprom-output <file>] Save the complete raw EEPROM on exit\n"
+     "       [--eeprom-input <file>] Load a complete raw EEPROM image\n"
+     "       [--eeprom-output <file>] Save the complete raw EEPROM on exit\n"
+     "       [--eeprom-size <bytes>] EEPROM image size (defaults to MCU size)\n"
 	 "       [--add-trace|-at    <name=[portpin|irq|trace]@addr/mask>] or \n"
 	 "                           <name=[sram8|sram16]@addr>] or \n"
 	 "                           <name=ioirq@XXXX/N\n"
@@ -95,10 +96,9 @@ list_cores()
 static avr_t * avr = NULL;
 
 static int
-load_raw_eeprom(avr_t *avr, const char *path)
+load_raw_eeprom(avr_t *avr, const char *path, size_t size)
 {
-	const size_t size = avr->e2end + 1;
-	uint8_t *data = malloc(size);
+    uint8_t *data = malloc(size);
 	FILE *file = fopen(path, "rb");
 	if (!data || !file) {
 		fprintf(stderr, "Unable to open EEPROM input %s\n", path);
@@ -128,10 +128,9 @@ load_raw_eeprom(avr_t *avr, const char *path)
 }
 
 static int
-save_raw_eeprom(avr_t *avr, const char *path)
+save_raw_eeprom(avr_t *avr, const char *path, size_t size)
 {
-	const size_t size = avr->e2end + 1;
-	uint8_t *data = malloc(size);
+    uint8_t *data = malloc(size);
 	avr_eeprom_desc_t desc = {.ee = data, .offset = 0, .size = size};
 	if (!data || avr_ioctl(avr, AVR_IOCTL_EEPROM_GET, &desc)) {
 		fprintf(stderr, "Unable to read emulated EEPROM for %s\n", path);
@@ -184,6 +183,7 @@ main(
 	const char *vcd_input = NULL;
 	const char *eeprom_input = NULL;
 	const char *eeprom_output = NULL;
+	size_t eeprom_size = 0;
 
 #ifndef NO_COLOR
 	const char *no_color = getenv("NO_COLOR");
@@ -235,6 +235,18 @@ main(
 				eeprom_output = argv[++pi];
 			else
 				display_usage(basename(argv[0]));
+		} else if (!strcmp(argv[pi], "--eeprom-size")) {
+			if (pi < argc-1) {
+				char *end = NULL;
+				const unsigned long value = strtoul(argv[++pi], &end, 10);
+				if (!argv[pi][0] || *end || !value) {
+					fprintf(stderr, "Invalid EEPROM size: %s\n", argv[pi]);
+					return 1;
+				}
+				eeprom_size = value;
+			} else {
+				display_usage(basename(argv[0]));
+			}
 		} else if (!strcmp(argv[pi], "-t") ||
 				   !strcmp(argv[pi], "--trace")) {
 #ifdef CONFIG_SIMAVR_TRACE
@@ -377,13 +389,22 @@ main(
 		exit(1);
 	}
 	avr_init(avr);
+	if (!eeprom_size)
+		eeprom_size = avr->e2end + 1;
+	if (eeprom_size > avr->e2end + 1) {
+		fprintf(stderr,
+			"EEPROM size %zu exceeds emulated MCU capacity %u\n",
+			eeprom_size, avr->e2end + 1);
+		avr_terminate(avr);
+		return 1;
+	}
 	avr->log = (log > LOG_TRACE ? LOG_TRACE : log);
 #ifdef CONFIG_SIMAVR_TRACE
 	avr->trace = trace;
 #endif //CONFIG_SIMAVR_TRACE
 
 	avr_load_firmware(avr, &f);
-	if (eeprom_input && load_raw_eeprom(avr, eeprom_input)) {
+    if (eeprom_input && load_raw_eeprom(avr, eeprom_input, eeprom_size)) {
 		avr_terminate(avr);
 		return 1;
 	}
@@ -418,7 +439,7 @@ main(
 		if (state == cpu_Done || state == cpu_Crashed)
 			break;
 	}
-	if (eeprom_output && save_raw_eeprom(avr, eeprom_output)) {
+    if (eeprom_output && save_raw_eeprom(avr, eeprom_output, eeprom_size)) {
 		avr_terminate(avr);
 		return 1;
 	}
