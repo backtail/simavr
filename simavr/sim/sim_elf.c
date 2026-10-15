@@ -336,7 +336,8 @@ avr_load_firmware(
 			if (irq)
 				avr_vcd_add_signal(
 					avr->vcd, irq,
-					firmware->trace[ti].addr == AVR_IOCTL_TWI_GETIRQ(0) ? 32 : 8,
+					(firmware->trace[ti].addr & 0xffffff00u) ==
+						(AVR_IOCTL_TWI_GETIRQ(0) & 0xffffff00u) ? 32 : 8,
 					firmware->trace[ti].name);
 		} else if ( (firmware->trace[ti].kind == AVR_MMCU_TAG_VCD_SRAM_8) ||
 		    (firmware->trace[ti].kind == AVR_MMCU_TAG_VCD_SRAM_16) ) {
