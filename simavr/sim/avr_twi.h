@@ -34,6 +34,9 @@ enum {
 	TWI_IRQ_INPUT = 0,
 	TWI_IRQ_OUTPUT,
 	TWI_IRQ_STATUS,
+	/* Test/board models may inject a hardware controller status such as
+	 * arbitration loss. Appended to preserve every existing IRQ index. */
+	TWI_IRQ_FAULT,
 	TWI_IRQ_COUNT
 };
 

@@ -479,10 +479,29 @@ avr_twi_irq_input(
 	}
 }
 
+static void
+avr_twi_irq_fault(
+		struct avr_irq_t * irq,
+		uint32_t value,
+		void * param)
+{
+	avr_twi_t * p = (avr_twi_t *)param;
+	(void)irq;
+
+	/* A board-level fault replaces the controller's pending successful/NACK
+	 * completion. This keeps later transfers free of a stale status timer. */
+	avr_cycle_timer_cancel(p->io.avr, avr_twi_set_state_timer, p);
+	p->next_twstate = 0;
+	p->state = 0;
+	p->peer_addr = 0;
+	_avr_twi_status_set(p, (uint8_t)value, 1);
+}
+
 void avr_twi_reset(struct avr_io_t *io)
 {
 	avr_twi_t * p = (avr_twi_t *)io;
 	avr_irq_register_notify(p->io.irq + TWI_IRQ_INPUT, avr_twi_irq_input, p);
+	avr_irq_register_notify(p->io.irq + TWI_IRQ_FAULT, avr_twi_irq_fault, p);
 	p->state = p->peer_addr = 0;
 	avr_regbit_setto_raw(p->io.avr, p->twsr, TWI_NO_STATE);
 }
@@ -491,6 +510,7 @@ static const char * irq_names[TWI_IRQ_COUNT] = {
 	[TWI_IRQ_INPUT] = "8<input",
 	[TWI_IRQ_OUTPUT] = "32>output",
 	[TWI_IRQ_STATUS] = "8>status",
+	[TWI_IRQ_FAULT] = "8<fault",
 };
 
 static	avr_io_t	_io = {
