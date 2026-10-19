@@ -65,9 +65,12 @@ display_usage(
 	 "       [-ti <vector>]      Add traces for IRQ vector <vector>\n"
 	 "       [--input|-i <file>] A VCD file to use as input signals\n"
 	 "       [--output|-o <file>] A VCD file to save the traced signals\n"
-     "       [--eeprom-input <file>] Load a complete raw EEPROM image\n"
+	 "       [--eeprom-input <file>] Load a complete raw EEPROM image\n"
 	 "       [--eeprom-output <file>] Save the complete raw EEPROM on exit\n"
 	 "       [--eeprom-size <bytes>] EEPROM image size (defaults to MCU size)\n"
+	 "       [--flash-input <file>] Load a complete raw Flash image\n"
+	 "       [--flash-output <file>] Save the complete raw Flash on exit\n"
+	 "       [--flash-size <bytes>] Flash image size (defaults to MCU size)\n"
 	 "       [--exit-on-reset]    Stop successfully after the first runtime MCU reset\n"
 	 "       [--add-trace|-at    <name=[portpin|irq|trace]@addr/mask>] or \n"
 	 "                           <name=[sram8|sram16]@addr>] or \n"
@@ -154,6 +157,50 @@ save_raw_eeprom(avr_t *avr, const char *path, size_t size)
 	return 0;
 }
 
+static int
+load_raw_flash(avr_t *avr, const char *path, size_t size)
+{
+	uint8_t *data = malloc(size);
+	FILE *file = fopen(path, "rb");
+	if (!data || !file) {
+		fprintf(stderr, "Unable to open Flash input %s\n", path);
+		free(data);
+		if (file)
+			fclose(file);
+		return -1;
+	}
+	const size_t count = fread(data, 1, size, file);
+	const int extra = fgetc(file);
+	if (ferror(file) || count != size || extra != EOF) {
+		fprintf(stderr,
+			"Flash input %s must contain exactly %zu bytes\n", path, size);
+		fclose(file);
+		free(data);
+		return -1;
+	}
+	fclose(file);
+	memcpy(avr->flash, data, size);
+	free(data);
+	return 0;
+}
+
+static int
+save_raw_flash(avr_t *avr, const char *path, size_t size)
+{
+	FILE *file = fopen(path, "wb");
+	if (!file) {
+		fprintf(stderr, "Unable to write Flash output %s\n", path);
+		return -1;
+	}
+	const size_t count = fwrite(avr->flash, 1, size, file);
+	const int close_result = fclose(file);
+	if (count != size || close_result) {
+		fprintf(stderr, "Unable to write Flash output %s\n", path);
+		return -1;
+	}
+	return 0;
+}
+
 static void
 sig_int(
 		int sign)
@@ -185,6 +232,9 @@ main(
 	const char *eeprom_input = NULL;
 	const char *eeprom_output = NULL;
 	size_t eeprom_size = 0;
+	const char *flash_input = NULL;
+	const char *flash_output = NULL;
+	size_t flash_size = 0;
 	int exit_on_reset = 0;
 
 #ifndef NO_COLOR
@@ -246,6 +296,28 @@ main(
 					return 1;
 				}
 				eeprom_size = value;
+			} else {
+				display_usage(basename(argv[0]));
+			}
+		} else if (!strcmp(argv[pi], "--flash-input")) {
+			if (pi < argc-1)
+				flash_input = argv[++pi];
+			else
+				display_usage(basename(argv[0]));
+		} else if (!strcmp(argv[pi], "--flash-output")) {
+			if (pi < argc-1)
+				flash_output = argv[++pi];
+			else
+				display_usage(basename(argv[0]));
+		} else if (!strcmp(argv[pi], "--flash-size")) {
+			if (pi < argc-1) {
+				char *end = NULL;
+				const unsigned long value = strtoul(argv[++pi], &end, 10);
+				if (!argv[pi][0] || *end || !value) {
+					fprintf(stderr, "Invalid Flash size: %s\n", argv[pi]);
+					return 1;
+				}
+				flash_size = value;
 			} else {
 				display_usage(basename(argv[0]));
 			}
@@ -402,13 +474,26 @@ main(
 		avr_terminate(avr);
 		return 1;
 	}
+	if (!flash_size)
+		flash_size = avr->flashend + 1;
+	if (flash_size > avr->flashend + 1) {
+		fprintf(stderr,
+			"Flash size %zu exceeds emulated MCU capacity %u\n",
+			flash_size, avr->flashend + 1);
+		avr_terminate(avr);
+		return 1;
+	}
 	avr->log = (log > LOG_TRACE ? LOG_TRACE : log);
 #ifdef CONFIG_SIMAVR_TRACE
 	avr->trace = trace;
 #endif //CONFIG_SIMAVR_TRACE
 
 	avr_load_firmware(avr, &f);
-    if (eeprom_input && load_raw_eeprom(avr, eeprom_input, eeprom_size)) {
+	if (flash_input && load_raw_flash(avr, flash_input, flash_size)) {
+		avr_terminate(avr);
+		return 1;
+	}
+	if (eeprom_input && load_raw_eeprom(avr, eeprom_input, eeprom_size)) {
 		avr_terminate(avr);
 		return 1;
 	}
@@ -449,7 +534,11 @@ main(
 		if (state == cpu_Done || state == cpu_Crashed)
 			break;
 	}
-    if (eeprom_output && save_raw_eeprom(avr, eeprom_output, eeprom_size)) {
+	if (eeprom_output && save_raw_eeprom(avr, eeprom_output, eeprom_size)) {
+		avr_terminate(avr);
+		return 1;
+	}
+	if (flash_output && save_raw_flash(avr, flash_output, flash_size)) {
 		avr_terminate(avr);
 		return 1;
 	}
