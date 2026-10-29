@@ -6,7 +6,16 @@ pkgs.stdenv.mkDerivation {
   pname = "simavr";
   version = "master";
 
-  src = ./.;
+  # Keep the derivation stable across the detached Git worktrees created by
+  # remote_tests.py. Both entries contain job-specific paths and neither is
+  # an input to the simavr build.
+  src = builtins.path {
+    path = ./.;
+    name = "monoplex-simavr-source";
+    filter = path: type:
+      let name = baseNameOf path;
+      in name != ".git" && name != "result";
+  };
 
   nativeBuildInputs = with pkgs; [
     gnumake
