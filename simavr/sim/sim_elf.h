@@ -71,7 +71,7 @@ typedef struct elf_firmware_t {
 		uint8_t mask;
 		uint32_t addr; // May be an ioctl value.
 		char	name[64];
-	} trace[32];
+	} trace[64];
 
 	struct {
 		char port;
